@@ -1,0 +1,14 @@
+data/plugwise/api.py.i
+data/plugwise/util.py.i
+data/plugwise/protocol.py.i
+data/setup.cfg.i
+data/plugwise/plugwise.py.i
+data/plugwise_util.i
+data/README.i
+data/setup.py.i
+data/plugwise_util.py.i
+data/plugwise/exceptions.py.i
+data/plugwise.py.i
+data/CrcMoose.py.i
+data/LICENSE.i
+data/plugwise/__init__.py.i

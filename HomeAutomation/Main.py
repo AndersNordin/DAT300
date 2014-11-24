@@ -1,155 +1,225 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-
-'''
-Created on Sep 23, 2014
-
-@author: anders
-'''
-from Tkconstants import *
-from Tkinter import BOTH, LabelFrame, Tk, Menu, Button, Label, Text
 import datetime
-import matplotlib.pyplot
 from plugwise.api import Stick, Circle
-import tkMessageBox
-from ttk import Frame, Style
+import sqlite3
+import sys
+from threading import Thread, Event
+import threading
+from time import sleep
+import time
 
-from Example import Plotter
+from Settings import freezer_MAC, floorHeating_MAC, sqlAvgLastHour,\
+    sqlAvgLastHourWithoutBG
 import Settings
+import matplotlib.pyplot as plt
 
+#####
+# Ta bort frysen från vår algoritm bg
+#
+#
+#####
 
-usbStick = Stick(port=Settings.USB_PORT)
-circlePlus = Circle(Settings.CIRCLEPLUS_MAC, usbStick)      
-circleSec = Circle(Settings.CIRCLE1_MAC, usbStick)
+#usbStick = Stick(port=Settings.USB_PORT)
+finishFlag = 0
+freezerPower = 16
+floorPower = 80
+funkar = -1
 
-class HomeAutomationApp(Frame):
-  
-    def __init__(self, parent):
-        Frame.__init__(self, parent)   
-         
-        self.parent = parent        
-        self.initUI()
+class BackgroundWorker(threading.Thread):
+    def __init__(self, macAddr, unitID, name, scale, eventSignal, signalEvent, minTemp, maxTemp, linearChangeOn, linearChangeOff):
+        threading.Thread.__init__(self)
+        self.macAddr = macAddr
+        self.id = unitID  
+        self.name = name
+        self.scale = scale
+        self.eventSignal = eventSignal
+        self.signalEvent = signalEvent
+        self.minTemp = minTemp
+        self.maxTemp = maxTemp
+        self.temp = maxTemp
+        self.linearChangeOn = linearChangeOn
+        self.linearChangeOff = linearChangeOff
+        self.running = False
+        self.slack = 0.0
+    
+    def run(self):
+        #unit = Circle(self.macAddr, usbStick)         
         
-    def initUI(self):
-      
-        self.parent.title("Home Automation Control Board")
-        self.style = Style()
-        self.style.theme_use("default")        
-        
-        self.pack(fill=BOTH, expand=1)
+        while not finishFlag:
+            #sleep(0.001) #just so the while loop doesnt just run without any work.
+            
+            self.slack = (self.temp - self.minTemp) / abs(self.linearChangeOff)
+            if(self.slack < 0):
+                self.slack = 0.0
+            elif(self.temp >= self.maxTemp):
+                self.slack = 99.9
                 
-        menubar = Menu(self)
-        filemenu = Menu(menubar, tearoff=0)        
-        filemenu.add_command(label="Restart")
-        filemenu.add_separator()
-        filemenu.add_command(label="Exit", command=self.quit)
-        menubar.add_cascade(label="File", menu=filemenu)             
-        helpmenu = Menu(menubar, tearoff=0)
-        helpmenu.add_command(label="Help")
-        helpmenu.add_command(label="About...", command=self.displayAbout)
-        menubar.add_cascade(label="Help", menu=helpmenu)         
-        self.parent.config(menu=menubar)        
-        
-        
-        groupCtrl = LabelFrame(self, text="Manual Control", width=320)
-        groupCtrl.pack(fill=Y, side=LEFT)
-        
-        groupCtrl2 = LabelFrame(self, text="Statistics", width=320)
-        groupCtrl2.pack(fill=Y, side=LEFT)
-        
-        self.T = Text(self)
-        self.T.pack(side=LEFT, fill=Y)
-        message = "Starting program..."
-        self.writeMessageToOutput(message)
+            # Allow coordinator to proceed
+            self.signalEvent.set()
+            
+            # wait for permission to proceed
+            self.eventSignal.wait()
+            self.eventSignal.clear()
+            
+            if(self.running):
+                self.temp = self.temp + self.linearChangeOn
+                if (self.id == 2016):
+                    print "Switching " + str(self.name) + " on, temp = -" + str(self.temp)
+                else:
+                    print "Switching " + str(self.name) + " on, temp = " + str(self.temp)
+                #unit.switch_on()
+            else:
+                self.temp = self.temp + self.linearChangeOff
+                if(self.id == 2016):
+                    print "Switching " + str(self.name) + " off, temp = -" + str(self.temp)
+                else:
+                    print "Switching " + str(self.name) + " off, temp = " + str(self.temp)
+                #unit.switch_off()
+            
+            
+            
 
         
-        l1 = Label(groupCtrl , text="Circle Plus")
-        l1.pack()                
-        manualOnBtn = Button(groupCtrl, text="ON", width=10, command=lambda: self.powerON(circlePlus))
-        manualOnBtn.pack()               
-        manualOffBtn = Button(groupCtrl, text="OFF",width=10, command=lambda: self.powerOff(circlePlus))
-        manualOffBtn.pack()
-        
-        l2 =  Label(groupCtrl , text="Circle Secondary")
-        l2.pack()
-        manualOnBtn2 = Button(groupCtrl, text="ON", width=10, command=lambda: self.powerON(circleSec))
-        manualOnBtn2.pack()               
-        manualOffBtn2 = Button(groupCtrl, text="OFF",width=10, command=lambda: self.powerOff(circleSec))
-        manualOffBtn2.pack()
-        
-        l3Title =  Label(groupCtrl2, text="Circle Plus (Watts)" )
-        l3Title.pack()
-        self.l3 =  Label(groupCtrl2)
-        self.l3.pack()
-        self.l3.after(200, self.displayPowerUsagePlus)
-        
-        l4Title =  Label(groupCtrl2, text="Circle Sec (Watts)" )
-        l4Title.pack()
-        self.l4 =  Label(groupCtrl2 )
-        self.l4.pack()
-        self.l4.after(200, self.displayPowerUsageSec)
-        
-    def powerON(self, unit):
-        unit.switch_on()
-        self.writeMessageToOutput("Switching on: " + unit.mac)
+class CoordinatorWorker(threading.Thread):
+    def __init__(self, scale):
+        threading.Thread.__init__(self)
+        self.simulationScale = scale
+        self.simTime = datetime.datetime(2000,1,1,0,0,0) # according database
+#
     
-    def powerOff(self, unit):
-        unit.switch_off()
-        self.writeMessageToOutput("Switching off: " + unit.mac)
+    def run(self):       
+        freezerSignal = Event()
+        signalfreezer = Event()
+        floorHeatingSignal = Event()
+        signalFloorHeating = Event()
+                        
+        freezerWorker = BackgroundWorker(freezer_MAC, 2016, "Freezer", self.simulationScale, signalfreezer, freezerSignal, 17.0, 19.0, 0.25, -1.0)
+        floorHeatingWorker = BackgroundWorker(floorHeating_MAC, 2236, "Floorheater", self.simulationScale, signalFloorHeating, floorHeatingSignal, 19.0, 21.0, 2.0, -0.66)
+        freezerWorker.start()
+        floorHeatingWorker.start()
         
+        # Used for plotting
+        backgroundPower = [10,10,10,10,10,10]
+        backgroundPointer = 0
+        totalValue = []
+        hours = []
+        
+        avgLastHour = 30 # just an initial value for the first hour.
 
-    def displayPowerUsagePlus(self):
-        try:
-            self.l3.config(text=str(circlePlus.get_power_usage()))
-        except ValueError:
-            self.l3.config(text="Value Error")
+        con = sqlite3.connect('data/energimynd_one_day.db')
+        cur = con.cursor()
 
-        self.l3.after(200, self.displayPowerUsagePlus)
         
-    def displayPowerUsageSec(self):
-        try:
-            self.l4.config(text=str(circleSec.get_power_usage()))
-        except ValueError:
-            self.l4.config(text="Value Error")
-        
-        self.l4.after(200, self.displayPowerUsageSec)
-        
-    def writeMessageToOutput(self, msg):
-        myPrompt = datetime.datetime.now().strftime('%H:%M:%S') + '> '
-    
-        
-        self.T.config(state=NORMAL)
-        
-        self.T.insert(END, myPrompt + msg + '\n')
-        self.T.config(state=DISABLED)
-        self.T.see(END)
-        
-    def displayAbout(self):
-        tkMessageBox.showinfo("About", "This app is created by Anders Nordin \
-and Johannes Blomquist. 2014.")  
+        while(self.simTime.day == 1):
+            time.sleep(self.simulationScale)     
+            
+            prevHour = self.simTime - datetime.timedelta(hours=1)
+            
+            print self.simTime
+            print "Avg: " + str(avgLastHour)
 
-def main():  
-    root = Tk()
-    HomeAutomationApp(root)
-    root.geometry("640x480")
-    
-    fig = matplotlib.pyplot.figure()
-    Plotter(fig)
-    
-    fig.canvas.draw()
-    fig.gca().clear()
-    fig.gca().plot([1,2,3],[4,5,6])
-    
-    root.mainloop()  
+            # Calculate average value for last hour
+            backgroundHour = 0 
+            for index in range (6):
+                backgroundHour += backgroundPower[index]
+            
+            if (prevHour.year != 1999):
+                cur.execute(sqlAvgLastHourWithoutBG.format(prevHour, self.simTime))
+                avgLastHour = cur.fetchone()[0] + (backgroundHour / 6)
+                
+            if (prevHour.hour >= 14 and prevHour.hour <= 16):
+                floorPower = 160
+            else:
+                floorPower = 80
+                                
+            cur.execute(Settings.sqlNoBg.format(self.simTime)) 
+            row = cur.fetchone()
+            
+            freezerSignal.wait()
+            freezerSignal.clear()
+            floorHeatingSignal.wait()
+            floorHeatingSignal.clear()
 
-if __name__ == '__main__':
-    main()  
+            print "Freezer slack: " + str(freezerWorker.slack)
+            print "FloorHeating slack: " + str(floorHeatingWorker.slack)
+            
+            # standard not to run
+            freezerWorker.running = False
+            floorHeatingWorker.running = False
+            backgroundPower[backgroundPointer] = 0
+            
+            if(freezerWorker.slack <= floorHeatingWorker.slack):
+                if((avgLastHour > float(row[0]) or freezerWorker.slack == 0) and freezerWorker.slack != 99.9):
+                    freezerWorker.running = True
+                    backgroundPower[backgroundPointer] += freezerPower
+                    print "adding freezer first IF"
+                    if(((avgLastHour + freezerPower) > float(row[0]) or floorHeatingWorker.slack == 0) and floorHeatingWorker.slack != 99.9):
+                        floorHeatingWorker.running = True
+                        backgroundPower[backgroundPointer] += floorPower
+                        print "adding floor first IF"
+            else:
+                if(avgLastHour > float(row[0]) or floorHeatingWorker.slack == 0):
+                    floorHeatingWorker.running = True
+                    backgroundPower[backgroundPointer] += floorPower
+                    print "adding floor second IF"
+                    if(((avgLastHour + floorPower) > float(row[0])) and freezerWorker.slack != 99.9):
+                        freezerWorker.running = True
+                        backgroundPower[backgroundPointer] += freezerPower
+                        print "adding freezer second IF"
+            
+            signalfreezer.set()
+            signalFloorHeating.set()            
+            
+            print "backgroundPower = " + str(backgroundPower)
+            print "this backgroundPower = " + str(backgroundPower[backgroundPointer])    
+            totalValue.append(row[0] + backgroundPower[backgroundPointer]) 
+            hours.append(self.simTime)
+            print "Total consumption: " + str(row[0] + backgroundPower[backgroundPointer])
+            
+            backgroundPointer = (backgroundPointer + 1) % 6
+            
+#             if avgLastHour > float(row[0]): 
+#                 print "Total consumption: " + str(row[0]) + " [OK]"    
+#                 nextExec = Settings.sqlAll      
+#             else:
+#                 print "Total consumption: " + str(row[0]) + " [PEAK]"
+#                 nextExec = Settings.sqlNoBg
+#             
+            self.simTime += datetime.timedelta(minutes=10)
+            print "\n"  
 
-     
-# option = OptionMenu(groupCtrl, CIRCLEPLUS_MAC, CIRCLE1_MAC)
-# option.config(width=20)
-# option.pack()        
+        con.close()        
+        self.drawPlot(hours, totalValue)
+        finishFlag = 1          
+        freezerWorker.join()  
+#
+        
+    def drawPlot(self, minutesArray, powerArray):
+        plt.plot(minutesArray, powerArray)
+        plt.ylabel('Watts')
+        plt.xlabel('Hours')
+        plt.show()  
 # 
-# powerUpgrade = StringVar()
-# powerLabel = Label(root, textvariable = powerUpgrade)
-# powerLabel.pack()
+
+# How fast will the simulation go 
+simulationScale = 0.1
+
+if len(sys.argv) > 1:
+    if sys.argv[1]:
+        if float(sys.argv[1]) > 0:
+            print "Program simulation will run with speed 1 h = {} seconds".format(float(sys.argv[1]))
+            simulationScale = float(sys.argv[1])
+        elif float(sys.argv[1]) <= 0:
+            print "Time cannot be negative."
+            sys.exit(1)
+    else:
+        print "Argument must be a positive number."
+else:
+    print "Program simulation will be set to default(1 h = 0.1 seconds)."
+
+coordinatorWorker = CoordinatorWorker(simulationScale)
+coordinatorWorker.start()
+coordinatorWorker.join()
+
+print 'Program Exit' 
