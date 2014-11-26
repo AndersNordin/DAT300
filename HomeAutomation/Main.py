@@ -1,26 +1,22 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 import datetime
+import numpy
+from numpy.random.mtrand import np
 from plugwise.api import Stick, Circle
 import sqlite3
 import sys
-from threading import Thread, Event
+from threading import  Event
 import threading
-from time import sleep
 import time
 
-from Settings import freezer_MAC, floorHeating_MAC, sqlAvgLastHour,\
-    sqlAvgLastHourWithoutBG
+from Settings import freezer_MAC, floorHeating_MAC, sqlAvgLastHourWithoutBG
 import Settings
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 
-#####
-# Ta bort frysen från vår algoritm bg
-#
-#
-#####
 
-#usbStick = Stick(port=Settings.USB_PORT)
+usbStick = Stick(port=Settings.USB_PORT)
 finishFlag = 0
 freezerPower = 16
 floorPower = 80
@@ -44,11 +40,10 @@ class BackgroundWorker(threading.Thread):
         self.slack = 0.0
     
     def run(self):
-        #unit = Circle(self.macAddr, usbStick)         
+        unit = Circle(self.macAddr, usbStick)         
         
         while not finishFlag:
-            #sleep(0.001) #just so the while loop doesnt just run without any work.
-            
+           
             self.slack = (self.temp - self.minTemp) / abs(self.linearChangeOff)
             if(self.slack < 0):
                 self.slack = 0.0
@@ -68,17 +63,15 @@ class BackgroundWorker(threading.Thread):
                     print "Switching " + str(self.name) + " on, temp = -" + str(self.temp)
                 else:
                     print "Switching " + str(self.name) + " on, temp = " + str(self.temp)
-                #unit.switch_on()
+                unit.switch_on()
             else:
                 self.temp = self.temp + self.linearChangeOff
                 if(self.id == 2016):
                     print "Switching " + str(self.name) + " off, temp = -" + str(self.temp)
                 else:
                     print "Switching " + str(self.name) + " off, temp = " + str(self.temp)
-                #unit.switch_off()
-            
-            
-            
+                unit.switch_off()
+  
 
         
 class CoordinatorWorker(threading.Thread):
@@ -103,21 +96,41 @@ class CoordinatorWorker(threading.Thread):
         backgroundPower = [10,10,10,10,10,10]
         backgroundPointer = 0
         totalValue = []
+        totalValueWithoutLSF = []
         hours = []
         
         avgLastHour = 30 # just an initial value for the first hour.
 
         con = sqlite3.connect('data/energimynd_one_day.db')
         cur = con.cursor()
-
         
-        while(self.simTime.day == 1):
+        plt.ion()
+        self.figure, self.ax = plt.subplots()
+        self.lines, = self.ax.plot([],[], 'r-', label="LSF")
+        self.lines2, = self.ax.plot([],[], 'b-', label="Without LSF")
+        self.ax.set_autoscaley_on(True)
+        self.ax.set_xlim(0, 1440)
+        self.ax.set_ylim(0, 350)
+        self.ax.set_xlabel('Minutes')
+        self.ax.set_ylabel('Watt')
+        
+        self.ax.grid()
+        plt.legend()
+        
+        xAxisMinArray = []
+        myMinute = 0
+    
+        while(self.simTime.day == 1):   
             time.sleep(self.simulationScale)     
+            
+            
+            xAxisMinArray.append(myMinute)
+            myMinute = myMinute + 10
             
             prevHour = self.simTime - datetime.timedelta(hours=1)
             
             print self.simTime
-            print "Avg: " + str(avgLastHour)
+            print "Threshold(avg watt): " + str(avgLastHour)
 
             # Calculate average value for last hour
             backgroundHour = 0 
@@ -141,10 +154,7 @@ class CoordinatorWorker(threading.Thread):
             floorHeatingSignal.wait()
             floorHeatingSignal.clear()
 
-            print "Freezer slack: " + str(freezerWorker.slack)
-            print "FloorHeating slack: " + str(floorHeatingWorker.slack)
-            
-            # standard not to run
+            # standard not to runSwitching
             freezerWorker.running = False
             floorHeatingWorker.running = False
             backgroundPower[backgroundPointer] = 0
@@ -153,51 +163,58 @@ class CoordinatorWorker(threading.Thread):
                 if((avgLastHour > float(row[0]) or freezerWorker.slack == 0) and freezerWorker.slack != 99.9):
                     freezerWorker.running = True
                     backgroundPower[backgroundPointer] += freezerPower
-                    print "adding freezer first IF"
                     if(((avgLastHour + freezerPower) > float(row[0]) or floorHeatingWorker.slack == 0) and floorHeatingWorker.slack != 99.9):
                         floorHeatingWorker.running = True
                         backgroundPower[backgroundPointer] += floorPower
-                        print "adding floor first IF"
             else:
                 if(avgLastHour > float(row[0]) or floorHeatingWorker.slack == 0):
                     floorHeatingWorker.running = True
                     backgroundPower[backgroundPointer] += floorPower
-                    print "adding floor second IF"
                     if(((avgLastHour + floorPower) > float(row[0])) and freezerWorker.slack != 99.9):
                         freezerWorker.running = True
                         backgroundPower[backgroundPointer] += freezerPower
-                        print "adding freezer second IF"
             
             signalfreezer.set()
             signalFloorHeating.set()            
             
-            print "backgroundPower = " + str(backgroundPower)
-            print "this backgroundPower = " + str(backgroundPower[backgroundPointer])    
             totalValue.append(row[0] + backgroundPower[backgroundPointer]) 
             hours.append(self.simTime)
-            print "Total consumption: " + str(row[0] + backgroundPower[backgroundPointer])
-            
+            print "Total consumption: " + str(row[0] + backgroundPower[backgroundPointer]) + " Watt"
+
+            cur.execute(Settings.sqlAll.format(self.simTime)) 
+            row2 = cur.fetchone()
+            totalValueWithoutLSF.append(row2[0])
+
+            self.on_running(xAxisMinArray, totalValue, totalValueWithoutLSF)
+
             backgroundPointer = (backgroundPointer + 1) % 6
-            
-#             if avgLastHour > float(row[0]): 
-#                 print "Total consumption: " + str(row[0]) + " [OK]"    
-#                 nextExec = Settings.sqlAll      
-#             else:
-#                 print "Total consumption: " + str(row[0]) + " [PEAK]"
-#                 nextExec = Settings.sqlNoBg
-#             
+        
             self.simTime += datetime.timedelta(minutes=10)
             print "\n"  
-
+            
         con.close()        
         self.drawPlot(hours, totalValue)
         finishFlag = 1          
         freezerWorker.join()  
 #
+
+    def on_running(self, xdata, ydata, y2data):
+        # Update data (with the new _and_ the old points)
+        self.lines.set_xdata(xdata)
+        self.lines.set_ydata(ydata)
+        self.lines2.set_xdata(xdata)
+        self.lines2.set_ydata(y2data)
+        # Need both of these in order to rescale
+        self.ax.relim()
+        self.ax.autoscale_view()
+        # We need to draw *and* flush
         
+        self.figure.canvas.draw()
+        self.figure.canvas.flush_events()
+
     def drawPlot(self, minutesArray, powerArray):
         plt.plot(minutesArray, powerArray)
-        plt.ylabel('Watts')
+        plt.ylabel('Watt')
         plt.xlabel('Hours')
         plt.show()  
 # 
