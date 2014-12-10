@@ -7,7 +7,7 @@ import sys
 from threading import  Event
 import threading
 import time
-from Settings import freezer_MAC, floorHeating_MAC, sqlAvgLastHourWithoutBG
+from Settings import fridge_MAC, floorHeating_MAC, sqlAvgLastHourWithoutBG
 import Settings
 import matplotlib.pyplot as plt
 '''
@@ -28,7 +28,7 @@ usbStick = Stick(port=Settings.USB_PORT)
 finishFlag = 0
 
 # Values in watt. Taken from analyzing plots in database.
-freezerPower = 16
+fridgePower = 16
 floorPower = 80
 
 funkar = -1
@@ -90,19 +90,12 @@ class BackgroundWorker(threading.Thread):
             
             if(self.running):
                 self.temp = self.temp + self.linearChangeOn
-                if (self.id == 2016):
-                    print "Switching " + str(self.name) + " on, temp = -" + str(self.temp)
-                else:
-                    print "Switching " + str(self.name) + " on, temp = " + str(self.temp)
+                print "Switching " + str(self.name) + " on, temp = " + str(self.temp)
                 self.unit.switch_on()
             else:
                 self.temp = self.temp + self.linearChangeOff
-                if(self.id == 2016):
-                    print "Switching " + str(self.name) + " off, temp = -" + str(self.temp)
-                else:
-                    print "Switching " + str(self.name) + " off, temp = " + str(self.temp)
+                print "Switching " + str(self.name) + " off, temp = " + str(self.temp)
                 self.unit.switch_off()
-#
 
         
 class CoordinatorWorker(threading.Thread):
@@ -122,18 +115,18 @@ class CoordinatorWorker(threading.Thread):
 
     def run(self):       
         # Initialize events
-        freezerSignal = Event()
-        signalfreezer = Event()
+        fridgeSignal = Event()
+        signalfridge = Event()
         floorHeatingSignal = Event()
         signalFloorHeating = Event()
         
         # Create threads and start them
-        freezerWorker = BackgroundWorker(freezer_MAC, 2016, "Freezer", self.simulationScale, signalfreezer, freezerSignal, 17.0, 19.0, 0.25, -1.0)
+        fridgeWorker = BackgroundWorker(fridge_MAC, 2016, "Fridge", self.simulationScale, signalfridge, fridgeSignal, 4.0, 6.0, 0.25, -1.0)
         floorHeatingWorker = BackgroundWorker(floorHeating_MAC, 2236, "Floorheater", self.simulationScale, signalFloorHeating, floorHeatingSignal, 19.0, 21.0, 2.0, -0.66)
-        freezerWorker.start()
+        fridgeWorker.start()
         floorHeatingWorker.start()
         
-        # Used for plotting
+        # Used to calculate avg consumption for background loads
         backgroundPower = [10,10,10,10,10,10]
         backgroundPointer = 0
         
@@ -204,34 +197,34 @@ class CoordinatorWorker(threading.Thread):
             row = cur.fetchone()
             
             # Events
-            freezerSignal.wait()
-            freezerSignal.clear()
+            fridgeSignal.wait()
+            fridgeSignal.clear()
             floorHeatingSignal.wait()
             floorHeatingSignal.clear()
 
             # standard not to runSwitching
-            freezerWorker.running = False
+            fridgeWorker.running = False
             floorHeatingWorker.running = False
             backgroundPower[backgroundPointer] = 0
             
-            
-            if(freezerWorker.slack <= floorHeatingWorker.slack):
-                if((avgLastHour > float(row[0]) or freezerWorker.slack == 0) and freezerWorker.slack != 99.9):
-                    freezerWorker.running = True
-                    backgroundPower[backgroundPointer] += freezerPower
-                    if(((avgLastHour + freezerPower) > float(row[0]) or floorHeatingWorker.slack == 0) and floorHeatingWorker.slack != 99.9):
+            # Decide priority and which load to run
+            if(fridgeWorker.slack <= floorHeatingWorker.slack):
+                if((avgLastHour > float(row[0]) or fridgeWorker.slack == 0) and fridgeWorker.slack != 99.9):
+                    fridgeWorker.running = True
+                    backgroundPower[backgroundPointer] += fridgePower
+                    if(((avgLastHour + fridgePower) > float(row[0]) or floorHeatingWorker.slack == 0) and floorHeatingWorker.slack != 99.9):
                         floorHeatingWorker.running = True
                         backgroundPower[backgroundPointer] += floorPower
             else:
                 if(avgLastHour > float(row[0]) or floorHeatingWorker.slack == 0):
                     floorHeatingWorker.running = True
                     backgroundPower[backgroundPointer] += floorPower
-                    if(((avgLastHour + floorPower) > float(row[0])) and freezerWorker.slack != 99.9):
-                        freezerWorker.running = True
-                        backgroundPower[backgroundPointer] += freezerPower
+                    if(((avgLastHour + floorPower) > float(row[0])) and fridgeWorker.slack != 99.9):
+                        fridgeWorker.running = True
+                        backgroundPower[backgroundPointer] += fridgePower
             
             # Trigger events
-            signalfreezer.set()
+            signalfridge.set()
             signalFloorHeating.set()            
             
             # Add total consumption for this lap in the simulation
@@ -270,7 +263,7 @@ class CoordinatorWorker(threading.Thread):
         finishFlag = 1          
         
         # wait for background worker to finish
-        freezerWorker.join()  
+        fridgeWorker.join()  
 #
 
     def on_running(self, xdata, ydata, y2data):
