@@ -1,15 +1,5 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-import datetime
-from plugwise.api import Stick, Circle
-import sqlite3
-import sys
-from threading import  Event
-import threading
-import time
-from Settings import freezer_MAC, floorHeating_MAC, sqlAvgLastHourWithoutBG
-import Settings
-import matplotlib.pyplot as plt
 '''
 @since: 2014-11-28 
 @author: Johannes Blomquist and Anders Nordin
@@ -20,17 +10,28 @@ import matplotlib.pyplot as plt
 # - Plot greedy algorithm to compare against LSF.
 # - Fix GUI(menus, graphs, controls, output console) 
 # - Bugfix: One thread does not terminate causing the program to crash at the end.
+# - Evaluate using more test data.
 ##############################
-
-
 # Initilize the usb stick
+
+import datetime
+from plugwise.api import Stick, Circle
+import sqlite3
+import sys
+from threading import  Event
+import threading
+import time
+from Settings import freezer_MAC, floorHeating_MAC, sqlAvgLastHourWithoutBG
+import Settings
+import matplotlib.pyplot as plt
+
+
 usbStick = Stick(port=Settings.USB_PORT)
-finishFlag = 0
 
 # Values in watt. Taken from analyzing plots in database.
 freezerPower = 16
 floorPower = 80
-
+finishFlag = 0
 funkar = -1
 
 
@@ -150,7 +151,7 @@ class CoordinatorWorker(threading.Thread):
         avgLastHour = 30 
 
         # Initialize database
-        con = sqlite3.connect('data/energimynd_one_day.db')
+        con = sqlite3.connect('data/test_data.db')
         cur = con.cursor()
         
         # Initialize real-time plot
@@ -158,6 +159,7 @@ class CoordinatorWorker(threading.Thread):
         self.figure, self.ax = plt.subplots()
         self.lines, = self.ax.plot([],[], 'r-', label="LSF")
         self.lines2, = self.ax.plot([],[], 'b-', label="Without LSF")
+        self.lines2.set_linestyle('--')
         self.ax.set_autoscaley_on(True)
         self.ax.set_xlim(0, 1440)
         self.ax.set_ylim(0, 350)
