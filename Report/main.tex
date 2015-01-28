@@ -1,0 +1,67 @@
+\documentclass[12pt,a4paper]{article}
+\addtolength{\textheight}{2.6cm}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+%\usepackage[english,swedish]{babel}
+\usepackage{amsmath}
+\usepackage{ae}
+\usepackage{color}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{verbatim}
+\usepackage[backend=bibtex,
+style=numeric
+%style=alphabetic
+%style=reading
+]{biblatex}
+\addbibresource{Library}
+\newcommand{\N}{\ensuremath{\mathbbm{N}}}
+\newcommand{\Z}{\ensuremath{\mathbbm{Z}}}
+\newcommand{\Q}{\ensuremath{\mathbbm{Q}}}
+\newcommand{\R}{\ensuremath{\mathbbm{R}}}
+\newcommand{\C}{\ensuremath{\mathbbm{C}}}
+\newcommand{\rd}{\ensuremath{\mathrm{d}}}
+\newcommand{\id}{\ensuremath{\,\rd}}
+
+\begin{document}
+
+\author{DAT300 \\\\
+Johannes Blomquist johblom@student.chalmers.se \\
+Anders Nordin anordin@student.chalmers.se \\
+}
+\title{\textsc{Home automation system for handling peaks in the power consumption}}
+\date{\today}
+
+\clearpage\maketitle
+\thispagestyle{empty}
+\newpage
+
+\thispagestyle{empty}
+\begin{abstract}
+Global warming is an acknowledged threat \cite{root2003fingerprints}. To lower the average temperature we must minimize the emission of greenhouse gases. One might argue that the obvious solution is to consume less energy. However, it is also possible to achieve the same result by, instead of lowering the consumption, redistribute it in an efficient manner such that people do not need to change their behaviour. This statement originates from the problem with power consumption peaks that occur in the electrical grid when people perform their daily routines at the same time. The power suppliers need to produce, at minimum, the requested amount of power. Adaption to such energy consumption peaks in the grid is also very expensive for the power suppliers. In this project we demonstrate that it is actually possible to minimize the peaks by using algorithms that schedule different electrical equipment in a household more efficiently. Based on previous research we demonstrate, on a small scale, how private customers can help to flatten peaks with respect to other customers and the grid. We evaluate our results in a testbed where we control electrical devices with the help of smart-plugs, where the algorithms is implemented in Python. We compare our approach with similar solutions, and discuss strengths and weaknesses, as well as possible improvements.
+%% Korrekturläst av Anders 2014-12-02
+
+\end{abstract}
+\newpage
+\clearpage
+\tableofcontents
+%\listoffigures
+\newpage
+
+\pagenumbering{arabic}
+\setcounter{page}{1}
+\input{Introduction.tex}
+\newpage
+\input{RelatedWork.tex}
+\newpage
+\input{Implementation.tex}
+\newpage
+\input{Evaluation.tex}
+\newpage
+\input{Conclusion.tex}
+\newpage
+\medskip
+\printbibliography
+\end{document}
