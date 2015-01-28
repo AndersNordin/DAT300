@@ -143,7 +143,7 @@ class CoordinatorWorker(threading.Thread):
         avgLastHour = 30 
 
         # Initialize database
-        con = sqlite3.connect('data/energimynd_one_day.db')
+        con = sqlite3.connect('data/test_data.db')
         cur = con.cursor()
         
         # Initialize real-time plot
